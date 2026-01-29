@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Mini Minecraft</title>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: sans-serif;
+      touch-action: none;
+    }
+
+    /* HOTBAR */
+    #hotbar {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      z-index: 10;
+    }
+
+    .slot {
+      width: 50px;
+      height: 50px;
+      background: #aaa;
+      border: 3px solid #555;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+    }
+
+    .selected {
+      border-color: gold;
+    }
+
+    /* MOBILE CONTROLS */
+    #mobile {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 10;
+    }
+
+    #mobile button {
+      width: 60px;
+      height: 60px;
+      font-size: 22px;
+      opacity: 0.7;
+    }
+
+    #jump {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 70px;
+      height: 70px;
+      font-size: 24px;
+      z-index: 10;
+      opacity: 0.7;
+    }
+  </style>
+</head>
+
+<body>
+
+<!-- HOTBAR -->
+<div id="hotbar">
+  <div class="slot selected" data-block="grass">1</div>
+  <div class="slot" data-block="dirt">2</div>
+  <div class="slot" data-block="stone">3</div>
+</div>
+
+<!-- MOBILE MOVE -->
+<div id="mobile">
+  <button id="forward">↑</button>
+  <div>
+    <button id="left">←</button>
+    <button id="back">↓</button>
+    <button id="right">→</button>
+  </div>
+</div>
+
+<button id="jump">⤴</button>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+
+<script>
+/* ===== SCENE ===== */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb);
+
+const camera = new THREE.PerspectiveCamera(
+  75, window.innerWidth / window.innerHeight, 0.1, 1000
+);
+
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+/* LIGHT */
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const sun = new THREE.DirectionalLight(0xffffff, 0.6);
+sun.position.set(10, 20, 10);
+scene.add(sun);
+
+/* CONTROLS */
+const controls = new THREE.PointerLockControls(camera, document.body);
+document.body.addEventListener("click", () => controls.lock());
+scene.add(controls.getObject());
+camera.position.y = 2;
+
+/* MATERIALS */
+const materials = {
+  grass: new THREE.MeshLambertMaterial({ color: 0x55aa55 }),
+  dirt: new THREE.MeshLambertMaterial({ color: 0x8b4513 }),
+  stone: new THREE.MeshLambertMaterial({ color: 0x888888 })
+};
+
+let selectedBlock = "grass";
+
+/* HOTBAR */
+const slots = document.querySelectorAll(".slot");
+function selectBlock(type) {
+  selectedBlock = type;
+  slots.forEach(s => s.classList.remove("selected"));
+  document.querySelector(`[data-block="${type}"]`).classList.add("selected");
+}
+slots.forEach(s => s.onclick = () => selectBlock(s.dataset.block));
+
+document.addEventListener("keydown", e => {
+  if (e.code === "Digit1") selectBlock("grass");
+  if (e.code === "Digit2") selectBlock("dirt");
+  if (e.code === "Digit3") selectBlock("stone");
+});
+
+/* WORLD */
+const blocks = [];
+const geometry = new THREE.BoxGeometry(1, 1, 1);
+
+function addBlock(x, y, z, type) {
+  const b = new THREE.Mesh(geometry, materials[type]);
+  b.position.set(x, y, z);
+  scene.add(b);
+  blocks.push(b);
+}
+
+for (let x = -10; x <= 10; x++) {
+  for (let z = -10; z <= 10; z++) {
+    addBlock(x, 0, z, "grass");
+  }
+}
+
+/* INPUT */
+const keys = {};
+document.addEventListener("keydown", e => keys[e.code] = true);
+document.addEventListener("keyup", e => keys[e.code] = false);
+
+/* MOBILE INPUT */
+const mobileKeys = { forward:false, back:false, left:false, right:false };
+function bind(id, key) {
+  const b = document.getElementById(id);
+  b.addEventListener("touchstart", e => { e.preventDefault(); mobileKeys[key] = true; });
+  b.addEventListener("touchend", () => mobileKeys[key] = false);
+}
+bind("forward","forward");
+bind("back","back");
+bind("left","left");
+bind("right","right");
+
+/* JUMP */
+let yVelocity = 0;
+let isOnGround = false;
+const gravity = 0.01;
+const jumpStrength = 0.25;
+
+document.addEventListener("keydown", e => {
+  if (e.code === "Space" && isOnGround) {
+    yVelocity = jumpStrength;
+    isOnGround = false;
+  }
+});
+
+document.getElementById("jump").addEventListener("touchstart", e => {
+  e.preventDefault();
+  if (isOnGround) {
+    yVelocity = jumpStrength;
+    isOnGround = false;
+  }
+});
+
+/* LOOK (TOUCH) */
+let lastX = 0, lastY = 0;
+document.addEventListener("touchstart", e => {
+  lastX = e.touches[0].clientX;
+  lastY = e.touches[0].clientY;
+});
+
+document.addEventListener("touchmove", e => {
+  const t = e.touches[0];
+  const dx = t.clientX - lastX;
+  const dy = t.clientY - lastY;
+
+  controls.getObject().rotation.y -= dx * 0.002;
+  camera.rotation.x -= dy * 0.002;
+  camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
+
+  lastX = t.clientX;
+  lastY = t.clientY;
+});
+
+/* BLOCK INTERACTION */
+const raycaster = new THREE.Raycaster();
+document.addEventListener("contextmenu", e => e.preventDefault());
+
+document.addEventListener("mousedown", e => {
+  raycaster.setFromCamera({x:0,y:0}, camera);
+  const hits = raycaster.intersectObjects(blocks);
+  if (!hits.length) return;
+
+  const hit = hits[0];
+
+  if (e.button === 0) {
+    scene.remove(hit.object);
+    blocks.splice(blocks.indexOf(hit.object),1);
+  }
+
+  if (e.button === 2) {
+    const p = hit.object.position;
+    const n = hit.face.normal;
+    addBlock(p.x+n.x, p.y+n.y, p.z+n.z, selectedBlock);
+  }
+});
+
+/* LOOP */
+function animate() {
+  requestAnimationFrame(animate);
+
+  const speed = 0.1;
+  if (keys["KeyW"] || mobileKeys.forward) controls.moveForward(speed);
+  if (keys["KeyS"] || mobileKeys.back) controls.moveForward(-speed);
+  if (keys["KeyA"] || mobileKeys.left) controls.moveRight(-speed);
+  if (keys["KeyD"] || mobileKeys.right) controls.moveRight(speed);
+
+  yVelocity -= gravity;
+  camera.position.y += yVelocity;
+  if (camera.position.y < 2) {
+    camera.position.y = 2;
+    yVelocity = 0;
+    isOnGround = true;
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+
+</body>
+</html>
